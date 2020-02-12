@@ -12,7 +12,6 @@ use std::thread::{spawn, JoinHandle};
 use core_affinity::CoreId;
 use net2::TcpBuilder;
 use tokio::io::Error as TokioIoError;
-use tokio::net::TcpListener as TokioTcpListener;
 use tokio::runtime::Builder as RuntimeBuilder;
 use tokio::task::LocalSet;
 
@@ -65,17 +64,17 @@ impl TokioContext {
 
 pub struct TokioTcpListenerContext {
     thread_index: usize,
-    listener: TokioTcpListener,
+    listener: StdTcpListener,
 }
 
 impl TokioTcpListenerContext {
     copy_accessor!(thread_index, usize);
 
-    pub fn mut_listener(&mut self) -> &mut TokioTcpListener {
+    pub fn mut_listener(&mut self) -> &mut StdTcpListener {
         &mut self.listener
     }
 
-    pub fn into_listener(self) -> TokioTcpListener {
+    pub fn into_listener(self) -> StdTcpListener {
         self.listener
     }
 }
@@ -100,6 +99,10 @@ pub struct TokioTcpListenerBuilder {
     only_v6: Option<bool>,
     backlog: Option<i32>,
     builder: TokioBuilder
+}
+
+pub struct HyperBuilder {
+    builder: TokioTcpListenerBuilder
 }
 
 macro_rules! builder_setter {
@@ -246,7 +249,7 @@ impl TokioTcpListenerBuilder {
         let backlog = self.backlog;
 
         let multi = self.builder.build_internal(move |ctx| {
-            let mut tcp_builder = match bind_addr {
+            let tcp_builder = match bind_addr {
                 SocketAddr::V4(_) => TcpBuilder::new_v4(),
                 SocketAddr::V6(_) => TcpBuilder::new_v6()
             }.map_err(StartError::TcpInitErred)?;
@@ -260,18 +263,16 @@ impl TokioTcpListenerBuilder {
             if let Some(only_v6) = only_v6 {
                 tcp_builder.only_v6(only_v6).map_err(StartError::TcpInitErred)?;
             }
-            let std_listener = tcp_builder
+            let listener = tcp_builder
                 .reuse_address(true)
                 .map_err(StartError::TcpInitErred)?
                 .bind(bind_addr)
                 .map_err(StartError::TcpInitErred)?
                 .listen(backlog.unwrap_or(128))
                 .map_err(StartError::TcpInitErred)?;
-            let tokio_listener = TokioTcpListener::from_std(std_listener)
-                .map_err(StartError::TokioTcpInitErred)?;
             let context = TokioTcpListenerContext {
                 thread_index: ctx.thread_index,
-                listener: tokio_listener
+                listener: listener
             };
             spawn_tasks(context)
         })?;
@@ -288,5 +289,4 @@ pub enum StartError {
     RuntimeBuildFailed(TokioIoError),
     SpawnTasksFailed(Box<dyn Any + Send + 'static>),
     TcpInitErred(IoError),
-    TokioTcpInitErred(TokioIoError)
 }

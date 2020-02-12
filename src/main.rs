@@ -29,9 +29,10 @@ fn main() {
         .tcp_listener(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080))
         .build(|mut ctx| {
             println!("Hello from listener thread {} listening on {:?}", ctx.thread_index(), ctx.mut_listener().local_addr());
+            let mut listener = tokio::net::TcpListener::from_std(ctx.into_listener()).unwrap();
             tokio::task::spawn_local(async move {
                 loop {
-                    let _ = ctx.mut_listener().accept().await;
+                    let _ = listener.accept().await;
                     println!("Got connection!");
                 }
             });
